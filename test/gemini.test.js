@@ -44,7 +44,7 @@ function geminiResponse(output, status = 200) {
 describe("fetchGeminiAnalyses", () => {
   beforeEach(() => {
     process.env.GEMINI_API_KEY = "test-secret-key";
-    process.env.GEMINI_MODEL = "gemini-3.8-flash";
+    process.env.GEMINI_MODEL = "gemini-3.5-flash-lite";
   });
 
   afterEach(() => {
@@ -76,7 +76,7 @@ describe("fetchGeminiAnalyses", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toContain("gemini-3.8-flash:generateContent");
+    expect(url).toContain("gemini-3.5-flash-lite:generateContent");
     expect(url).not.toContain("test-secret-key");
     expect(options.headers["x-goog-api-key"]).toBe("test-secret-key");
 

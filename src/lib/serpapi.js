@@ -1,5 +1,5 @@
 const SERPAPI_ENDPOINT = "https://serpapi.com/search.json";
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 25000;
 
 export class ShoppingProviderError extends Error {
   constructor(message, code = "SHOPPING_UNAVAILABLE") {

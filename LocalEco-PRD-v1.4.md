@@ -12,7 +12,7 @@
 | Version | 1.4 |
 | Status | Frozen MVP |
 | Primary search engine | SerpApi Google Shopping Light |
-| AI model | Gemini 3.8 Flash |
+| AI model | Gemini 3.5 Flash-Lite |
 
 ## 1. Executive Summary
 

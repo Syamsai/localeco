@@ -45,7 +45,7 @@ LIVE_SEARCH_LIFETIME_BUDGET=50
 LIVE_SEARCH_CACHE_TTL_SECONDS=86400
 SERPAPI_KEY=
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
 API keys are server-only. Never prefix either key with `NEXT_PUBLIC_`.
@@ -119,7 +119,9 @@ LIVE_SEARCH_ENABLED=true
 
 Changing `NEXT_PUBLIC_USE_MOCK_DATA` requires a new build and deployment.
 
-Gemini 2.5 Flash is unavailable to new API projects. LocalEco uses the
-replacement model explicitly recommended by the API: `gemini-3.8-flash`.
+Gemini 2.5 Flash is unavailable to new API projects. LocalEco uses
+`gemini-3.5-flash-lite`, which was verified with the free-tier project and the
+structured analysis contract while avoiding higher-demand model capacity
+errors.
 
 See `LocalEco-PRD-v1.4.md` for the frozen MVP requirements.

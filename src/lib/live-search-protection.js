@@ -285,6 +285,10 @@ export function createLiveSearchProtection({
         throw error;
       }
 
+      if (error instanceof Error && error.name === "ShoppingProviderError") {
+        throw error;
+      }
+
       console.error("Live search protection failed closed", {
         message: error instanceof Error ? error.message : "Unknown Redis error",
       });

@@ -129,7 +129,7 @@ describe("fetchShoppingLightResults", () => {
     const assertion = expect(request).rejects.toMatchObject({
       code: "REQUEST_TIMEOUT",
     });
-    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(25000);
     await assertion;
   });
 });
