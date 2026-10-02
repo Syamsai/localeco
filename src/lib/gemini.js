@@ -1,6 +1,6 @@
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 const REQUEST_TIMEOUT_MS = 20000;
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3.8-flash";
 
 const RESPONSE_SCHEMA = {
   type: "object",
@@ -90,12 +90,8 @@ function createRequestBody(products) {
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: 4096,
-      responseFormat: {
-        text: {
-          mimeType: "application/json",
-          schema: RESPONSE_SCHEMA,
-        },
-      },
+      responseMimeType: "application/json",
+      responseJsonSchema: RESPONSE_SCHEMA,
     },
   };
 }
@@ -162,8 +158,18 @@ export async function fetchGeminiAnalyses(products) {
         : response.status === 429
           ? "ANALYSIS_RATE_LIMITED"
           : "ANALYSIS_UNAVAILABLE";
+    let providerMessage = "";
+    try {
+      const errorPayload = await response.json();
+      providerMessage =
+        typeof errorPayload?.error?.message === "string"
+          ? ` ${errorPayload.error.message.slice(0, 500)}`
+          : "";
+    } catch {
+      providerMessage = "";
+    }
     throw new GeminiAnalysisError(
-      `Gemini returned HTTP ${response.status}.`,
+      `Gemini returned HTTP ${response.status}.${providerMessage}`,
       code,
     );
   }

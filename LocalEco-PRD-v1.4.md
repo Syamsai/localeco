@@ -9,10 +9,10 @@
 | Team | Solo developer |
 | Stack | Next.js 14+, React, JavaScript, Tailwind CSS |
 | Submission deadline | October 5, 2026 |
-| Version | 1.3 |
+| Version | 1.4 |
 | Status | Frozen MVP |
 | Primary search engine | SerpApi Google Shopping Light |
-| AI model | Gemini 2.5 Flash |
+| AI model | Gemini 3.8 Flash |
 
 ## 1. Executive Summary
 
