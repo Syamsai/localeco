@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { mergeProductAnalyses } from "@/lib/analysis-validation";
+import {
+  fetchGeminiAnalyses,
+  GeminiAnalysisError,
+} from "@/lib/gemini";
+import {
+  executeProtectedLiveSearch,
+  LiveSearchProtectionError,
+} from "@/lib/live-search-protection";
 import { createMockAnalyses } from "@/lib/mock-analysis";
 import {
   DEFAULT_MOCK_SCENARIO,
@@ -79,6 +87,134 @@ function shouldUseMockData(body) {
   );
 }
 
+function providerErrorResponse(error, requestId, startedAt) {
+  const isTimeout = error.code === "REQUEST_TIMEOUT";
+  const status =
+    error.code === "PROVIDER_NOT_CONFIGURED" ? 500 : isTimeout ? 504 : 502;
+  const message =
+    error.code === "PROVIDER_NOT_CONFIGURED"
+      ? "Shopping search is not configured."
+      : "Shopping search is temporarily unavailable.";
+
+  console.error("Shopping provider request failed", {
+    requestId,
+    code: error.code,
+    message: error.message,
+    durationMs: elapsedMilliseconds(startedAt),
+  });
+  return errorResponse(error.code, message, status, requestId);
+}
+
+async function runSearchPipeline({
+  query,
+  location,
+  origin,
+  useMock,
+  mockScenario,
+  requestId,
+}) {
+  const providerStartedAt = performance.now();
+
+  if (useMock) {
+    await delay(getMockDelay());
+  }
+
+  if (useMock && mockScenario === "shopping_failure") {
+    throw new ShoppingProviderError("Simulated shopping provider failure.");
+  }
+
+  const providerResponse = useMock
+    ? createMockShoppingResponse({
+        query,
+        location,
+        origin,
+        scenario: mockScenario,
+      })
+    : await fetchShoppingLightResults({ query, location });
+
+  logRequest(requestId, "provider-complete", {
+    durationMs: elapsedMilliseconds(providerStartedAt),
+    rawResultCount: Array.isArray(providerResponse.shopping_results)
+      ? providerResponse.shopping_results.length
+      : null,
+  });
+
+  let products;
+  try {
+    products = normalizeShoppingResults(providerResponse);
+  } catch (error) {
+    console.error("Shopping response validation failed", {
+      requestId,
+      message:
+        error instanceof Error ? error.message : "Unknown validation error",
+    });
+    throw new ShoppingProviderError(
+      "Shopping provider response failed validation.",
+    );
+  }
+
+  if (products.length === 0) {
+    return {
+      query,
+      location,
+      status: "no_results",
+      analysisMessage: null,
+      isMock: useMock,
+      products: [],
+    };
+  }
+
+  const analysisStartedAt = performance.now();
+  let analyses = [];
+  let usage = null;
+
+  if (useMock) {
+    analyses = createMockAnalyses(products, mockScenario);
+  } else {
+    try {
+      const geminiResult = await fetchGeminiAnalyses(products);
+      analyses = geminiResult.analyses;
+      usage = geminiResult.usage;
+    } catch (error) {
+      const analysisError =
+        error instanceof GeminiAnalysisError
+          ? error
+          : new GeminiAnalysisError("Unexpected Gemini failure.");
+      console.error("Gemini analysis failed", {
+        requestId,
+        code: analysisError.code,
+        message: analysisError.message,
+        durationMs: elapsedMilliseconds(analysisStartedAt),
+      });
+    }
+  }
+
+  const enriched = mergeProductAnalyses(products, analyses);
+  const analysisComplete = enriched.validCount === products.length;
+  const analysisMessage = analysisComplete
+    ? null
+    : enriched.validCount === 0
+      ? "We found products, but sustainability analysis is temporarily unavailable."
+      : "Sustainability analysis was unavailable for some products.";
+
+  logRequest(requestId, "analysis-complete", {
+    durationMs: elapsedMilliseconds(analysisStartedAt),
+    validAnalysisCount: enriched.validCount,
+    promptTokens: usage?.promptTokens ?? null,
+    outputTokens: usage?.outputTokens ?? null,
+    totalTokens: usage?.totalTokens ?? null,
+  });
+
+  return {
+    query,
+    location,
+    status: analysisComplete ? "complete" : "partial",
+    analysisMessage,
+    isMock: useMock,
+    products: enriched.products,
+  };
+}
+
 export async function POST(request) {
   const requestId = crypto.randomUUID();
   const startedAt = performance.now();
@@ -135,52 +271,58 @@ export async function POST(request) {
     mockScenario: useMock ? mockScenario : undefined,
   });
 
-  let providerResponse;
-  const providerStartedAt = performance.now();
   try {
-    if (useMock) {
-      await delay(getMockDelay());
-    }
+    const execute = ({ lifetimeUsed } = {}) => {
+      if (Number.isFinite(lifetimeUsed)) {
+        logRequest(requestId, "provider-budget-reserved", {
+          lifetimeUsed,
+          lifetimeLimit: Number.parseInt(
+            process.env.LIVE_SEARCH_LIFETIME_BUDGET ?? "50",
+            10,
+          ),
+        });
+      }
 
-    if (useMock && mockScenario === "shopping_failure") {
-      throw new ShoppingProviderError("Simulated shopping provider failure.");
-    }
-
-    providerResponse = useMock
-      ? createMockShoppingResponse({
+      return runSearchPipeline({
+        query,
+        location,
+        origin: new URL(request.url).origin,
+        useMock,
+        mockScenario,
+        requestId,
+      });
+    };
+    const responseBody = useMock
+      ? await execute()
+      : await executeProtectedLiveSearch({
+          request,
           query,
           location,
-          origin: new URL(request.url).origin,
-          scenario: mockScenario,
-        })
-      : await fetchShoppingLightResults({ query, location });
+          execute,
+        });
 
-    logRequest(requestId, "provider-complete", {
-      durationMs: elapsedMilliseconds(providerStartedAt),
-      rawResultCount: Array.isArray(providerResponse.shopping_results)
-        ? providerResponse.shopping_results.length
-        : null,
+    logRequest(requestId, "completed", {
+      outcome: responseBody.status,
+      cacheStatus: responseBody.cacheStatus ?? (useMock ? "mock" : null),
+      normalizedResultCount: responseBody.products.length,
+      totalDurationMs: elapsedMilliseconds(startedAt),
     });
+    return jsonResponse(responseBody, 200, requestId);
   } catch (error) {
-    if (error instanceof ShoppingProviderError) {
-      const isTimeout = error.code === "REQUEST_TIMEOUT";
-      const status =
-        error.code === "PROVIDER_NOT_CONFIGURED" ? 500 : isTimeout ? 504 : 502;
-      const message =
-        error.code === "PROVIDER_NOT_CONFIGURED"
-          ? "Shopping search is not configured."
-          : "Shopping search is temporarily unavailable.";
-
-      console.error("Shopping provider request failed", {
+    if (error instanceof LiveSearchProtectionError) {
+      console.warn("Live search blocked", {
         requestId,
         code: error.code,
         message: error.message,
-        durationMs: elapsedMilliseconds(providerStartedAt),
       });
-      return errorResponse(error.code, message, status, requestId);
+      return errorResponse(error.code, error.message, error.status, requestId);
     }
 
-    console.error("Unexpected shopping provider failure", {
+    if (error instanceof ShoppingProviderError) {
+      return providerErrorResponse(error, requestId, startedAt);
+    }
+
+    console.error("Unexpected search failure", {
       requestId,
       error,
     });
@@ -191,74 +333,4 @@ export async function POST(request) {
       requestId,
     );
   }
-
-  let products;
-  try {
-    products = normalizeShoppingResults(providerResponse);
-  } catch (error) {
-    console.error("Shopping response validation failed", {
-      requestId,
-      message:
-        error instanceof Error ? error.message : "Unknown validation error",
-    });
-    return errorResponse(
-      "SHOPPING_UNAVAILABLE",
-      "Shopping search is temporarily unavailable.",
-      502,
-      requestId,
-    );
-  }
-
-  if (products.length === 0) {
-    logRequest(requestId, "completed", {
-      outcome: "no_results",
-      normalizedResultCount: 0,
-      totalDurationMs: elapsedMilliseconds(startedAt),
-    });
-    return jsonResponse(
-      {
-        query,
-        location,
-        status: "no_results",
-        analysisMessage: null,
-        isMock: useMock,
-        products: [],
-      },
-      200,
-      requestId,
-    );
-  }
-
-  const analysisStartedAt = performance.now();
-  const analyses = useMock
-    ? createMockAnalyses(products, mockScenario)
-    : [];
-  const enriched = mergeProductAnalyses(products, analyses);
-  const analysisComplete = enriched.validCount === products.length;
-  const analysisMessage = analysisComplete
-    ? null
-    : enriched.validCount === 0
-      ? "We found products, but sustainability analysis is temporarily unavailable."
-      : "Sustainability analysis was unavailable for some products.";
-
-  logRequest(requestId, "completed", {
-    outcome: analysisComplete ? "complete" : "partial",
-    normalizedResultCount: products.length,
-    validAnalysisCount: enriched.validCount,
-    analysisDurationMs: elapsedMilliseconds(analysisStartedAt),
-    totalDurationMs: elapsedMilliseconds(startedAt),
-  });
-
-  return jsonResponse(
-    {
-      query,
-      location,
-      status: analysisComplete ? "complete" : "partial",
-      analysisMessage,
-      isMock: useMock,
-      products: enriched.products,
-    },
-    200,
-    requestId,
-  );
 }

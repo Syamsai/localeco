@@ -410,7 +410,11 @@ export default function SearchExperience() {
                     <span className="rounded-full bg-[#e6f3ff] px-2.5 py-1 text-xs font-bold text-[#175985]">
                       Demo data
                     </span>
-                  ) : null}
+                  ) : (
+                    <span className="rounded-full bg-[#dcfce7] px-2.5 py-1 text-xs font-bold text-[#166534]">
+                      Live shopping data
+                    </span>
+                  )}
                 </div>
                 <p className="mt-1 text-sm text-[#63766d]">
                   {products.length} products for &ldquo;{activeSearch.query}&rdquo;
