@@ -61,28 +61,7 @@ npm run build
 ```
 
 ## Architecture
-
-```text
-Browser
-  ├─ Check tab-scoped sessionStorage cache
-  │    ├─ Hit: render cached response; do not call /api/search
-  │    └─ Miss: POST /api/search
-  │         ├─ Validate query and location
-  │         ├─ Mock mode: local Shopping Light-shaped fixture
-  │         └─ Live mode
-  │              ├─ Enforce Upstash visitor limits
-  │              ├─ Check Upstash shared result cache
-  │              │    └─ Hit: return result; skip both providers
-  │              └─ Miss: acquire per-search lock
-  │                   ├─ Enforce global limits; reserve lifetime budget(serpApi credit limit)
-  │                   ├─ SerpApi Google Shopping Light
-  │                   ├─ Normalize up to 10 usable products
-  │                   ├─ One Gemini batch analysis (when products exist)
-  │                   ├─ Validate and merge by product ID
-  │                   └─ Cache response in Upstash
-  │
-  └─ On API response with products, cache in sessionStorage
-```
+<img width="1408" height="768" alt="localeco_archtiecture_dataFlow" src="https://github.com/user-attachments/assets/40bc486f-ccbc-4982-ba25-65d3820bae44" />
 
 ## Request & Credit Optimization Flow
 Browser cache → Shared cache → SerpApi → ≤10 products → 1 Gemini batch → Cached result
