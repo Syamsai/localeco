@@ -74,7 +74,7 @@ Browser
   │              ├─ Check Upstash shared result cache
   │              │    └─ Hit: return result; skip both providers
   │              └─ Miss: acquire per-search lock
-  │                   ├─ Enforce global limits; reserve lifetime budget
+  │                   ├─ Enforce global limits; reserve lifetime budget(serpApi credit limit)
   │                   ├─ SerpApi Google Shopping Light
   │                   ├─ Normalize up to 10 usable products
   │                   ├─ One Gemini batch analysis (when products exist)
@@ -83,6 +83,9 @@ Browser
   │
   └─ On API response with products, cache in sessionStorage
 ```
+
+## Request & Credit Optimization Flow
+Browser cache → Shared cache → SerpApi → ≤10 products → 1 Gemini batch → Cached result
 
 ### Request flow
 
