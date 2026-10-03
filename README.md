@@ -82,6 +82,7 @@ Browser
   │                   └─ Cache response in Upstash
   │
   └─ On API response with products, cache in sessionStorage
+```
 
 ### Request flow
 
