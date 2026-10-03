@@ -109,6 +109,7 @@ Hackathon judges evaluating:
 - All Results and Eco 7+ filters
 - Loading, empty, partial-failure, and error states
 - Session-scoped client cache
+- Shared server-side result cache and live-search request/credit guardrails
 - Controlled development/demo mock mode
 
 ### 5.2 Excluded
@@ -175,7 +176,8 @@ Hackathon judges evaluating:
 
 ### F-3: SerpApi Google Shopping Light integration
 
-For each uncached real-mode search, the server sends one request using:
+When a live request misses the shared server cache, the server sends at most one
+SerpApi request using:
 
 - endpoint: `https://serpapi.com/search.json`;
 - engine: `google_shopping_light`;
@@ -436,14 +438,38 @@ without consuming external credits.
 
 - Cache successful responses in client memory or `sessionStorage`.
 - Cache key:
-  `v1:<normalized-location>:<normalized-query>:<mode>`.
+  `v1:<normalized-location>:<normalized-query>:<mode>:<scenario>`.
 - Normalize by trimming, converting to lowercase, and collapsing repeated
   whitespace.
 - Cache only complete and partial-success responses that contain products.
 - Do not cache validation, provider, network, or unexpected errors.
 - Cache lifetime is the browser tab session.
-- A cache hit makes no SerpApi or Gemini request.
+- A cache hit skips the API request and therefore makes no SerpApi or Gemini
+  request.
 - Loading feedback for a cache hit may be skipped.
+
+### F-14: Shared live-search cache and protection
+
+The browser session cache and server-side cache have distinct purposes. The
+browser cache avoids a repeat API request in the same tab. Upstash Redis
+provides a shared cache across visitors and server instances, and enforces
+provider-use guardrails for live requests.
+
+- For a live API request, enforce per-visitor limits before checking the shared
+  result cache: two requests per minute and ten per day.
+- On a shared-cache hit, return the cached result without calling SerpApi or
+  Gemini.
+- On a miss, use a per-search lock to coalesce concurrent identical searches.
+- Before provider work on a miss, enforce global limits of four live search
+  executions per minute and twenty per day.
+- Reserve from a hard lifetime SerpApi budget of fifty attempts before
+  executing provider work. A timeout conservatively consumes the reservation.
+- Cache complete responses for 24 hours; cache partial and no-result responses
+  for one hour.
+- Fail closed if live search is disabled or the protection/cache service is
+  unavailable; do not bypass guardrails and call providers directly.
+- Hash visitor identifiers and normalized search keys before storing them in
+  Redis. Never log provider keys, raw IP addresses, or product payloads.
 
 ## 8. API Contract
 
@@ -676,8 +702,10 @@ testing and demonstration:
 - 100% of displayed scores have a reason.
 - 0 unsupported claims in the curated demo dataset.
 - 0 secrets in client bundles or responses.
-- One SerpApi call and at most one Gemini call per uncached search.
-- Repeated session search produces zero external calls.
+- On a shared server-cache miss, at most one SerpApi request and one Gemini
+  request when products exist; client- and server-cache hits make no provider
+  requests.
+- Repeating a cached search in the same tab produces no API or provider calls.
 - Valid shopping products remain usable during Gemini failure.
 - All required states are demonstrable in mock mode.
 
@@ -702,7 +730,7 @@ testing and demonstration:
 | Provider schema varies | Broken cards | Normalization layer and fixtures with missing/alternate fields |
 | AI output does not match products | Incorrect score association | Stable IDs and ID-based response matching |
 | Gemini fails after shopping succeeds | Entire search appears broken | Partial-success contract and shopping-only cards |
-| Public demo consumes credits | Cost or quota exhaustion | Session cache, mock mode, one-plus-one request architecture |
+| Public demo consumes credits | Cost or quota exhaustion | Browser session cache, shared server cache, request locking, live-search budgets, mock mode, one-plus-one request architecture |
 | Mock data is mistaken for live data | Misleading demo | Visible mock indicator |
 | External latency is high | Poor demo experience | Skeletons, explicit timeouts, prepared mock fallback |
 | Sustainability wording overclaims impact | Reputational risk | Use Eco Evidence Score, not verified impact language |
